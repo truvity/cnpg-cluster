@@ -1,0 +1,137 @@
+# cnpg-cluster v2: the tier-injected PostgreSQL profile carrier.
+#
+# CONTRACT: this chart implements gitops docs/architecture/
+# pg-usage-shapes.md — if they disagree, the doc wins and the chart is
+# the bug. The PLATFORM injects `profile` and `backup` coordinates
+# (wave-105 valuesObject); the PROJECT declares databases/roles/customers.
+# A project cannot ship a prod posture of its own choosing.
+#
+# v2 breaking changes vs 1.x: IRSA removed (EKS Pod Identity binds the
+# {clusterName} ServiceAccount to the platform-minted
+# {env}-pg-backup-{project} role — no chart-side IAM at all);
+# isWALArchiver is now true when backup is enabled; databases/roles are
+# declared here (the cnpg-database chart is retired).
+
+clusterName: ""
+namespace: ""
+
+# ── Platform-injected ────────────────────────────────────────────────
+# profile: "devel" | "prod" — selects the hardened posture. stage runs
+# "prod". Injected by wave-105; do not set in project values. REQUIRED:
+# the render fails when unset/invalid — a misspelled profile must never
+# silently degrade prod to a single-instance devel posture.
+profile: ""
+
+# Tenancy labels stamped on the Cluster CR; the operator's
+# INHERITED_LABELS fans them out to Pods/PVCs/Services (gitops INF-476).
+labels: {}
+#  tenancy.truvity.io/project: url-shortener
+#  tenancy.truvity.io/tier: primary
+
+# Backup coordinates (platform-injected; the gitops repo derives them
+# from cfg/gen/{backup-scope}/ via cfg/config-cnpg). Empty bucket = archiving
+# off (devel default — only the designated test project archives there).
+backup:
+  enabled: false
+  bucketName: ""
+  # s3Prefix defaults to {namespace}/{clusterName}/ when empty — the
+  # permission-model write scope. Override only for recovery drills.
+  s3Prefix: ""
+  # serverName is the barman server directory under the prefix; defaults
+  # to clusterName. A RECREATED (fresh initdb) cluster must NOT reuse
+  # its predecessor's archive dir — barman's check-wal-archive refuses a
+  # non-empty archive for a new timeline history. Bump a generation
+  # suffix on recreate ({clusterName}-g2, -g3, …); the old dir stays
+  # readable for recovery until the S3 lifecycle expires it. A
+  # recovery-bootstrapped cluster CONTINUES the old dir instead.
+  serverName: ""
+  schedule: "0 0 2 * * *"
+  # retentionDays is the FUNCTIONAL PITR window (plugin-pruned; the S3
+  # lifecycle backstop is 180d, structure-side).
+  retentionDays: 30
+  # Separate knobs — the plugin's data enum (bzip2/gzip/lz4/snappy) is
+  # narrower than WAL's (which adds xz/zstd).
+  walCompression: zstd
+  dataCompression: snappy
+  encryption: AES256
+
+# ── Project-declared ─────────────────────────────────────────────────
+# The bootstrap database + owner. The owner is a TECHNICAL role: used
+# only by the migration job (DDL), never interactive. CNPG initdb also
+# mints the {clusterName}-app basic-auth Secret for the owner — the
+# `auth: password` compatibility path.
+bootstrap:
+  mode: initdb # or "recovery"
+  initdb:
+    database: ""
+    owner: ""
+    # Declarative schemas on the bootstrap database (renders its
+    # Database CR). A STATIC project property — install tooling passes
+    # only the name-derived scalars above.
+    schemas: []
+  recovery:
+    source:
+      bucketName: ""
+      s3Prefix: ""
+      serverName: ""
+    target:
+      targetTime: ""
+      exclusive: false
+
+# Additional databases in this cluster (absorbs the retired
+# cnpg-database chart): name/owner/schemas/ensure.
+databases: []
+#  - name: app
+#    owner: us-owner
+#    schemas: [urls, stats]
+
+# Customers (shared-cluster, database-per-customer shape — rung 2 of the
+# isolation ladder): each renders a Database owned by the shared owner
+# plus a {name}-access NOLOGIN role the daemon role joins. One daemon
+# cert, N databases; shared PITR timeline (see pg-usage-shapes.md).
+customers: []
+#  - name: customer-a
+
+# Roles (DatabaseRole CRs). auth: cert → operator-issued mTLS client
+# certificate in Secret {name}-client-cert (the terminal state for
+# applications). auth: password → the compatibility escape hatch:
+#   * the bootstrap owner needs no entry here — CNPG's initdb already
+#     mints the {clusterName}-app basic-auth Secret for it;
+#   * any OTHER password role MUST bring its own passwordSecret (a
+#     kubernetes.io/basic-auth Secret, e.g. ESO-delivered or created by
+#     the verify suite) — the chart NEVER generates passwords
+#     (template-time randomness drifts under ArgoCD; see the
+#     url-shortener-infra history).
+roles: []
+#  - name: us-app
+#    auth: cert
+#    inRoles: []
+#  - name: us-legacy
+#    auth: password
+#    passwordSecret: us-legacy-pg-credentials
+
+# ── Overridable knobs (profile provides defaults) ────────────────────
+instances: null          # devel 1 / prod 3 unless overridden
+storage:
+  size: ""               # profile default: devel 2Gi / prod 10Gi
+  storageClass: ""       # devel cnpg-gp3-delete / prod cnpg-gp3
+walStorage:
+  size: "5Gi"            # prod only; devel skips the WAL volume
+
+# Empty = profile default: prod 250m/512Mi req + 1Gi mem limit;
+# devel 100m/256Mi req + 512Mi mem limit (with shared_buffers 64MB —
+# devel databases are tiny). A set value replaces the default wholesale.
+resources: {}
+
+postgresql:
+  parameters: {}
+  extra_pg_hba: []       # appended AFTER the profile posture lines
+
+enableSuperuserAccess: false
+
+# Prod-profile scheduling: the tainted Karpenter pool CNPG instances
+# land on (nodeSelector + toleration + do-not-disrupt). Empty string
+# opts out — the escape hatch for prod-profile installs on clusters
+# without a database pool. devel profile always rides the default pool.
+scheduling:
+  databasePool: database

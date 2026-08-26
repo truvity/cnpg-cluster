@@ -1,0 +1,14 @@
+{{- if eq .Values.bootstrap.mode "recovery" }}
+{{- if .Values.bootstrap.recovery.source.bucketName }}
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ .Values.clusterName }}-source-objectstore
+  namespace: {{ .Values.namespace }}
+spec:
+  configuration:
+    destinationPath: s3://{{ .Values.bootstrap.recovery.source.bucketName }}/{{ .Values.bootstrap.recovery.source.s3Prefix }}
+    s3Credentials:
+      inheritFromIAMRole: true
+{{- end }}
+{{- end }}

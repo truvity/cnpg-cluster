@@ -1,0 +1,10 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: {{ include "cnpg-database.fullname" . }}
+  namespace: {{ required "namespace is required" .Values.namespace }}
+spec:
+  name: {{ required "databaseName is required" .Values.databaseName }}
+  owner: {{ required "owner is required" .Values.owner }}
+  cluster:
+    name: {{ required "clusterName is required" .Values.clusterName }}

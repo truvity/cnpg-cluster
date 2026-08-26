@@ -1,0 +1,193 @@
+{{- /* Profile-resolved defaults (pg-usage-shapes.md): prod = 3-instance
+sync+quorum HA with WAL volume and Retain storage; devel = 1 instance,
+cheap and fast. A project overrides knobs, never the posture. */}}
+{{- if not (has .Values.profile (list "devel" "prod")) }}
+{{- fail (printf "profile must be devel|prod (got %q) — it is platform-injected; a missing profile must never silently render the devel posture" .Values.profile) }}
+{{- end }}
+{{- $prod := eq .Values.profile "prod" }}
+{{- $instances := .Values.instances | default ($prod | ternary 3 1) }}
+{{- if and $prod (lt (int $instances) 3) }}
+{{- fail (printf "prod posture requires instances >= 3 (got %d) — failoverQuorum is meaningless below 3 and 2-instance prod is forbidden (pg-usage-shapes)" (int $instances)) }}
+{{- end }}
+{{- $storageClass := .Values.storage.storageClass | default ($prod | ternary "cnpg-gp3" "cnpg-gp3-delete") }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.clusterName }}
+  namespace: {{ .Values.namespace }}
+  {{- if $prod }}
+  annotations:
+    # Quorum-based failover protection is 1.30 ALPHA — enabled via
+    # annotation, not spec (pkg/utils FailoverQuorumAnnotationName;
+    # there is no spec.failoverQuorum field in the CRD).
+    alpha.cnpg.io/failoverQuorum: "true"
+  {{- end }}
+  {{- with .Values.labels }}
+  labels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  instances: {{ $instances }}
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  enableSuperuserAccess: {{ .Values.enableSuperuserAccess }}
+  # Explicit on both postures: CNPG defaults enablePDB to true, so a
+  # devel single-instance cluster would otherwise get a primary PDB
+  # with 0 allowed disruptions and block node drains until the
+  # NodePool's 24h force-drain (pg-usage-shapes: devel = no PDB).
+  enablePDB: {{ $prod }}
+
+  {{- if or $prod .Values.labels }}
+  inheritedMetadata:
+    {{- if $prod }}
+    annotations:
+      # Instance pods must never be consolidation victims — Karpenter
+      # moves stateless workloads around them instead.
+      karpenter.sh/do-not-disrupt: "true"
+    {{- end }}
+    {{- with .Values.labels }}
+    labels:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+
+  {{- if $prod }}
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+    parameters:
+      {{- /* ~50%% of the WAL volume: a stuck replication slot must fill
+           at most half the disk before being dropped. Derived when the
+           size is expressed in Gi; override explicitly otherwise. */}}
+      {{- $walGi := .Values.walStorage.size | toString }}
+      {{- $slotDefault := hasSuffix "Gi" $walGi | ternary (printf "%dGB" (div (trimSuffix "Gi" $walGi | int) 2 | max 1)) "2GB" }}
+      max_slot_wal_keep_size: {{ .Values.postgresql.parameters.max_slot_wal_keep_size | default $slotDefault | quote }}
+      {{- range $k, $v := omit .Values.postgresql.parameters "max_slot_wal_keep_size" }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+    pg_hba:
+      {{- include "cnpg-cluster.pgHba" . | trim | nindent 6 }}
+  {{- else }}
+  postgresql:
+    parameters:
+      synchronous_commit: "off" # devel: fsync stays ON; test suites fly
+      {{- /* Small footprint: devel databases are tiny; 64MB of shared
+           buffers frees most of the (also profile-shrunk) memory request
+           for backends and the OS cache. */}}
+      shared_buffers: {{ .Values.postgresql.parameters.shared_buffers | default "64MB" | quote }}
+      {{- range $k, $v := omit .Values.postgresql.parameters "shared_buffers" }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+    pg_hba:
+      {{- include "cnpg-cluster.pgHba" . | trim | nindent 6 }}
+  {{- end }}
+
+  storage:
+    {{- /* Profile-scaled default: devel installs are small and
+         disposable; prod starts at 10Gi and grows by override. */}}
+    size: {{ .Values.storage.size | default ($prod | ternary "10Gi" "2Gi") }}
+    storageClass: {{ $storageClass }}
+    resizeInUseVolumes: true
+  {{- if $prod }}
+  walStorage:
+    size: {{ .Values.walStorage.size }}
+    storageClass: {{ $storageClass }}
+    resizeInUseVolumes: true
+  {{- end }}
+
+  {{- /* Profile-scaled resource defaults; any project-set resources
+       value replaces them wholesale. devel runs a skeleton crew. */}}
+  {{- $defaultResources := $prod
+      | ternary (dict "requests" (dict "cpu" "250m" "memory" "512Mi") "limits" (dict "memory" "1Gi"))
+                (dict "requests" (dict "cpu" "100m" "memory" "256Mi") "limits" (dict "memory" "512Mi")) }}
+  resources:
+    {{- .Values.resources | default $defaultResources | toYaml | nindent 4 }}
+
+  {{- if $prod }}
+  affinity:
+    podAntiAffinityType: required
+    {{- if .Values.scheduling.databasePool }}
+    # Tainted database pool (gitops cfg/k8s.yaml presets): one replica
+    # of EVERY pg cluster per node/AZ; capacity type is the PRESET's
+    # decision (prod/kernel on-demand, stage spot-relaxed).
+    nodeSelector:
+      karpenter.sh/nodepool: {{ .Values.scheduling.databasePool }}
+    {{- end }}
+    tolerations:
+      - key: arch
+        operator: Exists
+      {{- if .Values.scheduling.databasePool }}
+      - key: {{ .Values.scheduling.databasePool }}
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+      {{- end }}
+  probes:
+    liveness:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6 # ~60s — the 30s default self-fences on AWS blips
+      isolationCheck:
+        enabled: true
+        # Integers per CRD schema (strings fail structured-merge diff).
+        requestTimeout: 2000
+        connectionTimeout: 2000
+  {{- else }}
+  affinity:
+    tolerations:
+      - key: arch
+        operator: Exists
+  {{- end }}
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: {{ $prod | ternary "DoNotSchedule" "ScheduleAnyway" }}
+      labelSelector:
+        matchLabels:
+          cnpg.io/cluster: {{ .Values.clusterName }}
+
+  {{- if eq .Values.bootstrap.mode "initdb" }}
+  {{- if .Values.bootstrap.initdb.database }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.bootstrap.initdb.database }}
+      owner: {{ .Values.bootstrap.initdb.owner }}
+  {{- end }}
+  {{- end }}
+
+  {{- if eq .Values.bootstrap.mode "recovery" }}
+  {{- if .Values.bootstrap.recovery.source.bucketName }}
+  bootstrap:
+    recovery:
+      source: {{ .Values.clusterName }}-source
+      {{- if .Values.bootstrap.recovery.target.targetTime }}
+      recoveryTarget:
+        targetTime: {{ .Values.bootstrap.recovery.target.targetTime | quote }}
+        exclusive: {{ .Values.bootstrap.recovery.target.exclusive }}
+      {{- end }}
+  externalClusters:
+    - name: {{ .Values.clusterName }}-source
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: {{ .Values.clusterName }}-source-objectstore
+          serverName: {{ include "cnpg-cluster.sourceServerName" . }}
+  {{- else }}
+  {{- fail "bootstrap.recovery.source.bucketName is required when bootstrap.mode is 'recovery'" }}
+  {{- end }}
+  {{- end }}
+
+  {{- if and .Values.backup.enabled .Values.backup.bucketName }}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      # v2: TRUE — continuous WAL archiving is the point; false only ever
+      # made sense while nothing consumed the archive.
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ .Values.clusterName }}-objectstore
+        serverName: {{ .Values.backup.serverName | default .Values.clusterName }}
+  {{- end }}

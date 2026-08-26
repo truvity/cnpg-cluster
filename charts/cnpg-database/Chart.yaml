@@ -1,0 +1,8 @@
+apiVersion: v2
+name: cnpg-database
+description: Logical database within a CloudNativePG cluster with consumer network policies
+type: application
+# Placeholder — the real version is injected from the git tag (vX.Y.Z)
+# by ocictl helmctl at packaging; never bump by hand.
+version: 0.0.0
+appVersion: "1.29.1"

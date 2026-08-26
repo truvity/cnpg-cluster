@@ -1,0 +1,25 @@
+{{- if and .Values.backup.enabled .Values.backup.bucketName }}
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ .Values.clusterName }}-objectstore
+  namespace: {{ .Values.namespace }}
+spec:
+  configuration:
+    destinationPath: s3://{{ .Values.backup.bucketName }}/{{ include "cnpg-cluster.s3Prefix" . }}
+    s3Credentials:
+      inheritFromIAMRole: true # EKS Pod Identity ({env}-pg-backup-{project})
+    data:
+      # Base backups: the CRD enum here is narrower than WAL's (no
+      # zstd/xz — found by server dry-run against the live plugin).
+      compression: {{ .Values.backup.dataCompression }}
+      encryption: {{ .Values.backup.encryption }}
+      jobs: 2
+    wal:
+      compression: {{ .Values.backup.walCompression }}
+      encryption: {{ .Values.backup.encryption }}
+      maxParallel: 4
+  # The FUNCTIONAL PITR window; the S3 lifecycle 180d backstop is
+  # structure-side (gitops cnpg-backup stacks).
+  retentionPolicy: {{ .Values.backup.retentionDays }}d
+{{- end }}
