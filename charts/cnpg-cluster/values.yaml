@@ -129,9 +129,11 @@ postgresql:
 
 enableSuperuserAccess: false
 
-# Prod-profile scheduling: the tainted Karpenter pool CNPG instances
-# land on (nodeSelector + toleration + do-not-disrupt). Empty string
-# opts out — the escape hatch for prod-profile installs on clusters
-# without a database pool. devel profile always rides the default pool.
+# The tainted Karpenter pool CNPG instances land on (nodeSelector +
+# matching toleration). An EXPLICIT value pins BOTH profiles; unset
+# (~), the prod profile defaults to "database" and devel rides the
+# default pools — the pre-1.1.0 behavior. Empty string opts out
+# anywhere — the escape hatch for installs on clusters without a
+# dedicated pool.
 scheduling:
-  databasePool: database
+  databasePool: ~

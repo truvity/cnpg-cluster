@@ -105,25 +105,33 @@ spec:
   resources:
     {{- .Values.resources | default $defaultResources | toYaml | nindent 4 }}
 
-  {{- if $prod }}
+  {{- /* Profile-aware pool default (v1.1.0): an EXPLICIT
+       scheduling.databasePool pins BOTH profiles; when unset (~), prod
+       defaults to "database" and devel rides the default pools —
+       exactly the pre-1.1.0 behavior. Empty string opts out anywhere. */}}
+  {{- $pool := .Values.scheduling.databasePool }}
+  {{- if eq $pool nil }}{{ $pool = $prod | ternary "database" "" }}{{ end }}
   affinity:
+    {{- if $prod }}
     podAntiAffinityType: required
-    {{- if .Values.scheduling.databasePool }}
-    # Tainted database pool (gitops cfg/k8s.yaml presets): one replica
-    # of EVERY pg cluster per node/AZ; capacity type is the PRESET's
-    # decision (prod/kernel on-demand, stage spot-relaxed).
+    {{- end }}
+    {{- if $pool }}
+    # Tainted pool (gitops cfg/k8s.yaml presets): the non-interruptible
+    # home for pg instances; on the prod profile one replica of EVERY
+    # pg cluster per node/AZ. Capacity type is the PRESET's decision.
     nodeSelector:
-      karpenter.sh/nodepool: {{ .Values.scheduling.databasePool }}
+      karpenter.sh/nodepool: {{ $pool }}
     {{- end }}
     tolerations:
       - key: arch
         operator: Exists
-      {{- if .Values.scheduling.databasePool }}
-      - key: {{ .Values.scheduling.databasePool }}
+      {{- if $pool }}
+      - key: {{ $pool }}
         operator: Equal
         value: "true"
         effect: NoSchedule
       {{- end }}
+  {{- if $prod }}
   probes:
     liveness:
       periodSeconds: 10
@@ -134,11 +142,6 @@ spec:
         # Integers per CRD schema (strings fail structured-merge diff).
         requestTimeout: 2000
         connectionTimeout: 2000
-  {{- else }}
-  affinity:
-    tolerations:
-      - key: arch
-        operator: Exists
   {{- end }}
 
   topologySpreadConstraints:
