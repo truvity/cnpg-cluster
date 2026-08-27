@@ -26,6 +26,10 @@ type (
 		Spec struct {
 			Instances int   `json:"instances"`
 			EnablePDB *bool `json:"enablePDB"`
+			Affinity  struct {
+				NodeSelector        map[string]string `json:"nodeSelector"`
+				PodAntiAffinityType string            `json:"podAntiAffinityType"`
+			} `json:"affinity"`
 		} `json:"spec"`
 	}
 )
@@ -71,4 +75,27 @@ func TestProfilePDB_ExplicitOnBothPostures(t *testing.T) {
 	require.NotNil(t, prod.Spec.EnablePDB, "prod must emit enablePDB explicitly")
 	assert.True(t, *prod.Spec.EnablePDB, "prod posture keeps the PDB: 3 instances make eviction survivable via switchover")
 	assert.Equal(t, 3, prod.Spec.Instances)
+}
+
+// TestPoolSelector_ProfileAwareDefault: unset databasePool keeps the
+// pre-1.1.0 behavior per profile (prod pins "database", devel rides the
+// default pools); an explicit value pins BOTH profiles; the empty
+// string opts out anywhere. The devel-with-pool case is what the
+// devel durable cutover (INF-594 phase 2) deploys.
+func TestPoolSelector_ProfileAwareDefault(t *testing.T) {
+	prodDefault := renderCluster(t, "profile=prod")
+	assert.Equal(t, "database", prodDefault.Spec.Affinity.NodeSelector["karpenter.sh/nodepool"], "prod default must stay the database pool")
+	assert.Equal(t, "required", prodDefault.Spec.Affinity.PodAntiAffinityType)
+
+	develDefault := renderCluster(t, "profile=devel")
+	assert.Empty(t, develDefault.Spec.Affinity.NodeSelector, "devel default rides the default pools")
+	assert.Empty(t, develDefault.Spec.Affinity.PodAntiAffinityType, "anti-affinity is a prod posture")
+
+	develPinned := renderCluster(t, "profile=devel", "scheduling.databasePool=durable")
+	assert.Equal(t, "durable", develPinned.Spec.Affinity.NodeSelector["karpenter.sh/nodepool"], "an explicit pool pins the devel profile too")
+	assert.Empty(t, develPinned.Spec.Affinity.PodAntiAffinityType, "pinning a pool must not smuggle in the prod anti-affinity")
+
+	prodOptOut := renderCluster(t, "profile=prod", "scheduling.databasePool=")
+	assert.Empty(t, prodOptOut.Spec.Affinity.NodeSelector, "empty string opts out on prod")
+	assert.Equal(t, "required", prodOptOut.Spec.Affinity.PodAntiAffinityType)
 }
