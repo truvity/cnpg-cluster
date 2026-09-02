@@ -2,6 +2,8 @@ module github.com/truvity/cnpg-cluster
 
 go 1.27.0
 
+toolchain go1.27.1
+
 require (
 	github.com/stretchr/testify v1.11.1
 	sigs.k8s.io/yaml v1.6.0
