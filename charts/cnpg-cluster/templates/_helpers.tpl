@@ -41,3 +41,12 @@ model's write scope.
 {{- define "cnpg-cluster.s3Prefix" -}}
 {{- .Values.backup.s3Prefix | default (printf "%s/%s" .Values.namespace .Values.clusterName) -}}
 {{- end -}}
+
+{{/*
+serverTLS is on when an issuer is named. Chained defaults, not dig:
+.Values is chartutil.Values (see sourceServerName above).
+*/}}
+{{- define "cnpg-cluster.serverTLSEnabled" -}}
+{{- $tls := .Values.serverTLS | default dict -}}
+{{- if ($tls.issuerRef | default dict).name -}}true{{- end -}}
+{{- end -}}
