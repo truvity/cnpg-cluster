@@ -129,6 +129,39 @@ postgresql:
 
 enableSuperuserAccess: false
 
+# ── Server certificate (optional) ────────────────────────────────────
+# By default the operator mints a self-signed CA per cluster and signs
+# the server certificate from it. Setting serverTLS.issuerRef.name makes
+# the chart request the SERVER certificate from a cert-manager issuer
+# instead, for every Service of the cluster
+# ({clusterName}-{rw,ro,r}.{namespace}.svc.cluster.local), and point
+# spec.certificates.serverTLSSecret / serverCASecret at it.
+#
+# SERVER TLS ONLY. The client CA stays the operator's ({clusterName}-ca),
+# so the replication certificate, DatabaseRole client certificates and
+# pg_hba are unchanged. What changes is what a client that VERIFIES the
+# server (sslmode=verify-ca / verify-full) must trust -- the issuer's
+# roots, not {clusterName}-ca -- and, under verify-full, the host it may
+# dial: only the fully-qualified names above are in the certificate.
+# Move such clients before setting this.
+serverTLS:
+  # {name, kind, group} of the cert-manager issuer. Empty name = the
+  # operator's own CA (default).
+  issuerRef: {}
+  # Passed to the Certificate when set; cert-manager's defaults otherwise.
+  duration: ""
+  renewBefore: ""
+  # Passed through, e.g. {algorithm: ECDSA, size: 384}. An issuer that
+  # signs one key type only (most Vault/OpenBAO roles) refuses any other.
+  privateKey: {}
+  # REQUIRED with issuerRef: the PEM roots that verify the issued chain.
+  # It becomes the server CA Secret's ca.crt -- what the operator's status
+  # client, replicas and poolers verify the server with. The issued
+  # Secret's own ca.crt is not enough: an issuer below an intermediate
+  # puts the intermediate there, and libpq will not accept a trust anchor
+  # that is not self-signed.
+  caCertificates: ""
+
 # The tainted Karpenter pool CNPG instances land on (nodeSelector +
 # matching toleration). An EXPLICIT value pins BOTH profiles; unset
 # (~), the prod profile defaults to "database" and devel rides the

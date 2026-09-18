@@ -37,6 +37,15 @@ spec:
   # NodePool's 24h force-drain (pg-usage-shapes: devel = no PDB).
   enablePDB: {{ $prod }}
 
+  {{- if include "cnpg-cluster.serverTLSEnabled" . }}
+  # Server certificate from cert-manager (templates/server-tls.yaml); the
+  # client CA stays the operator's, so client certificates, replication
+  # and pg_hba do not move.
+  certificates:
+    serverTLSSecret: {{ .Values.clusterName }}-server-tls
+    serverCASecret: {{ .Values.clusterName }}-server-ca
+  {{- end }}
+
   {{- if or $prod .Values.labels }}
   inheritedMetadata:
     {{- if $prod }}

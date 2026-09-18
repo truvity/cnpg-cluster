@@ -31,6 +31,31 @@ the render rather than silently choosing a posture:
 so omission on devel would resurrect the drain-blocking primary PDB). The chart
 tests in `charts/cnpg-cluster/chart_test.go` pin this.
 
+## Server certificate
+
+By default the operator mints a self-signed CA per cluster (`<cluster>-ca`) and
+signs the server certificate from it. Set `serverTLS.issuerRef.name` to take the
+**server** certificate from a cert-manager issuer instead:
+
+```yaml
+serverTLS:
+  issuerRef: {name: my-issuer, kind: ClusterIssuer, group: cert-manager.io}
+  privateKey: {algorithm: ECDSA, size: 384}   # whatever the issuer signs
+  caCertificates: |                           # required: the issuer's roots
+    -----BEGIN CERTIFICATE-----
+    ...
+```
+
+The chart renders a `Certificate` for `<cluster>-{rw,ro,r}.<namespace>.svc.cluster.local`
+and a `<cluster>-server-ca` Secret holding `caCertificates`, and points
+`spec.certificates.serverTLSSecret` / `serverCASecret` at them.
+
+Server side only: the client CA stays `<cluster>-ca`, so replication, role client
+certificates and `pg_hba` do not change. Clients that do not verify the server
+(`sslmode=require`) notice nothing. Clients that do (`verify-ca`, `verify-full`)
+must trust the issuer's roots first, and under `verify-full` dial one of the
+fully-qualified names above. Unset the value to go back to the operator's CA.
+
 ## Scheduling
 
 `scheduling.databasePool` (default `database`) selects the Karpenter node pool
