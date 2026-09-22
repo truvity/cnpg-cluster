@@ -53,7 +53,43 @@ backup:
   # narrower than WAL's (which adds xz/zstd).
   walCompression: zstd
   dataCompression: snappy
+  # Server-side encryption asked for on every upload (AES256 or
+  # aws:kms). Empty sends no x-amz-server-side-encryption header and
+  # leaves encryption to the bucket's own policy -- required by stores
+  # that reject the header (Cloudflare R2 among them).
   encryption: AES256
+  # S3-COMPATIBLE STORES. Empty keeps the AWS endpoint, so nothing
+  # changes for an AWS caller. The plugin has understood endpointURL all
+  # along; this chart simply never passed it, which made backups AWS-only
+  # by omission rather than by decision. Examples:
+  #   Cloudflare R2  https://<account>.r2.cloudflarestorage.com
+  #   MinIO          https://minio.example.internal:9000
+  #   Ceph RGW       https://rgw.example.internal
+  # A custom endpoint is addressed path-style (endpoint/bucket/key): that
+  # is the S3 SDK's own default whenever endpoint_url is set, and every
+  # store above accepts it, so there is no addressing switch here. No
+  # region is needed either: the SDK signs with us-east-1 when none is
+  # configured, which R2 aliases to its single `auto` region and MinIO
+  # ignores; a store that insists on one can name it in existingSecretKeys.
+  endpoint: ""
+  # {name, key} of a Secret holding the PEM bundle that verifies the
+  # endpoint's certificate, for a private store under its own CA. Empty
+  # trusts the system roots.
+  endpointCA: {}
+  # Static credentials for a store with no pod identity, as
+  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in an existing Secret.
+  # Empty keeps the pod's ambient identity (inheritFromIAMRole), which is
+  # the right default on AWS: asking for keys there would be asking for
+  # the thing pod identity exists to remove.
+  existingSecret: ""
+  # The keys read from existingSecret. sessionToken and region are read
+  # only when NAMED -- the plugin refuses a missing key rather than
+  # skipping it -- so leave them empty for the usual static key pair.
+  existingSecretKeys:
+    accessKeyId: AWS_ACCESS_KEY_ID
+    secretAccessKey: AWS_SECRET_ACCESS_KEY
+    sessionToken: ""
+    region: ""
 
 # ── Project-declared ─────────────────────────────────────────────────
 # The bootstrap database + owner. The owner is a TECHNICAL role: used
@@ -74,6 +110,18 @@ bootstrap:
       bucketName: ""
       s3Prefix: ""
       serverName: ""
+      # The archive being recovered from may live on a different store
+      # than the one this cluster will back up to (a drill from R2 into
+      # a cluster that archives to AWS, say), so the store coordinates
+      # are repeated here with the same meaning as under `backup`.
+      endpoint: ""
+      endpointCA: {}
+      existingSecret: ""
+      existingSecretKeys:
+        accessKeyId: AWS_ACCESS_KEY_ID
+        secretAccessKey: AWS_SECRET_ACCESS_KEY
+        sessionToken: ""
+        region: ""
     target:
       targetTime: ""
       exclusive: false
