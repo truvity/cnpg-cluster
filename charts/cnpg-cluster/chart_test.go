@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package chart_test renders the cnpg-cluster chart and asserts the
-// profile postures (pg-usage-shapes.md). The defects that matter here
+// profile postures. The defects that matter here
 // render as valid YAML — CNPG defaults enablePDB to TRUE, so merely
 // omitting the field on devel silently ships a primary PDB with 0
 // allowed disruptions that blocks Karpenter node drains — so the tests
@@ -68,7 +68,7 @@ func renderCluster(t *testing.T, sets ...string) cluster {
 func TestProfilePDB_ExplicitOnBothPostures(t *testing.T) {
 	devel := renderCluster(t, "profile=devel")
 	require.NotNil(t, devel.Spec.EnablePDB, "devel must emit enablePDB explicitly — omission means CNPG's default (true) and a PDB that blocks node drains")
-	assert.False(t, *devel.Spec.EnablePDB, "devel posture is no-PDB (pg-usage-shapes): a 1-instance cluster has nowhere to fail over, the PDB only stalls node maintenance")
+	assert.False(t, *devel.Spec.EnablePDB, "devel posture is no-PDB: a 1-instance cluster has nowhere to fail over, the PDB only stalls node maintenance")
 	assert.Equal(t, 1, devel.Spec.Instances)
 
 	prod := renderCluster(t, "profile=prod")
@@ -80,8 +80,8 @@ func TestProfilePDB_ExplicitOnBothPostures(t *testing.T) {
 // TestPoolSelector_ProfileAwareDefault: unset databasePool keeps the
 // pre-1.1.0 behavior per profile (prod pins "database", devel rides the
 // default pools); an explicit value pins BOTH profiles; the empty
-// string opts out anywhere. The devel-with-pool case is what the
-// devel durable cutover (INF-594 phase 2) deploys.
+// string opts out anywhere. The devel-with-pool case is a devel
+// install pinned to a non-interruptible pool.
 func TestPoolSelector_ProfileAwareDefault(t *testing.T) {
 	prodDefault := renderCluster(t, "profile=prod")
 	assert.Equal(t, "database", prodDefault.Spec.Affinity.NodeSelector["karpenter.sh/nodepool"], "prod default must stay the database pool")

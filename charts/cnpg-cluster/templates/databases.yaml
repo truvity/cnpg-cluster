@@ -1,6 +1,6 @@
 {{- /* Databases (absorbs the retired cnpg-database chart) + the
-shared-cluster customer shape (gitops docs/architecture/
-pg-usage-shapes.md, rung 2): every customer gets a Database owned by the
+shared-cluster customer shape (database-per-customer, rung 2 of the
+isolation ladder): every customer gets a Database owned by the
 bootstrap owner and a {customer}-access NOLOGIN role; daemon roles join
 via inRoles to reach that customer. One cert, N databases, shared PITR
 timeline. */}}
@@ -40,8 +40,8 @@ spec:
 {{- fail (printf "databases[].name %q collides with the customer-* namespace reserved for the customers list" .name) }}
 {{- end }}
 {{- /* Compare SLUGGED forms: metadata names normalize "_"->"-", so
-"url-shortener" and "url_shortener" would collide at apply time even
-though the raw names differ. */}}
+"my-app" and "my_app" would collide at apply time even though the raw
+names differ. */}}
 {{- if eq (.name | replace "_" "-") ($.Values.bootstrap.initdb.database | default "" | replace "_" "-") }}
 {{- fail (printf "databases[].name %q collides with the bootstrap database — declare its schemas via bootstrap.initdb.schemas instead" .name) }}
 {{- end }}
@@ -50,8 +50,8 @@ though the raw names differ. */}}
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
-  # PG database names may carry underscores (url_shortener); K8s names
-  # may not — slug the metadata, keep spec.name verbatim.
+  # PG database names may carry underscores (my_app); K8s names may
+  # not — slug the metadata, keep spec.name verbatim.
   name: {{ $.Values.clusterName }}-{{ .name | replace "_" "-" }}
   namespace: {{ $.Values.namespace }}
 spec:

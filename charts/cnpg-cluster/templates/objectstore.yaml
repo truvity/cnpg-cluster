@@ -35,11 +35,11 @@ spec:
         key: {{ . }}
 {{- end }}
 {{- else }}
-      inheritFromIAMRole: true # EKS Pod Identity ({env}-pg-backup-{project})
+      inheritFromIAMRole: true # the pod's ambient identity, bound by the platform
 {{- end }}
     data:
       # Base backups: the CRD enum here is narrower than WAL's (no
-      # zstd/xz — found by server dry-run against the live plugin).
+      # zstd/xz — found by a server-side dry-run against the plugin).
       compression: {{ .Values.backup.dataCompression }}
 {{- with .Values.backup.encryption }}
       encryption: {{ . }}
@@ -51,7 +51,7 @@ spec:
       encryption: {{ . }}
 {{- end }}
       maxParallel: 4
-  # The FUNCTIONAL PITR window; the S3 lifecycle 180d backstop is
-  # structure-side (gitops cnpg-backup stacks).
+  # The FUNCTIONAL PITR window; a bucket lifecycle rule, if any, is
+  # the platform's backstop and must outlive it.
   retentionPolicy: {{ .Values.backup.retentionDays }}d
 {{- end }}

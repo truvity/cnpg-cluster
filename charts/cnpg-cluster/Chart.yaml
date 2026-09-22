@@ -1,6 +1,6 @@
 apiVersion: v2
 name: cnpg-cluster
-description: CloudNativePG PostgreSQL cluster — tier-injected profile carrier (pg-usage-shapes.md)
+description: CloudNativePG PostgreSQL cluster with a platform-injected two-posture profile
 type: application
 # Placeholder — the real version is injected from the git tag (vX.Y.Z)
 # by ocictl helmctl at packaging; never bump by hand.

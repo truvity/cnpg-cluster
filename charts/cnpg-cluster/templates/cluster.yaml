@@ -1,13 +1,13 @@
-{{- /* Profile-resolved defaults (pg-usage-shapes.md): prod = 3-instance
-sync+quorum HA with WAL volume and Retain storage; devel = 1 instance,
-cheap and fast. A project overrides knobs, never the posture. */}}
+{{- /* Profile-resolved defaults: prod = 3-instance sync+quorum HA with
+WAL volume and Retain storage; devel = 1 instance, cheap and fast. A
+project overrides knobs, never the posture. */}}
 {{- if not (has .Values.profile (list "devel" "prod")) }}
 {{- fail (printf "profile must be devel|prod (got %q) — it is platform-injected; a missing profile must never silently render the devel posture" .Values.profile) }}
 {{- end }}
 {{- $prod := eq .Values.profile "prod" }}
 {{- $instances := .Values.instances | default ($prod | ternary 3 1) }}
 {{- if and $prod (lt (int $instances) 3) }}
-{{- fail (printf "prod posture requires instances >= 3 (got %d) — failoverQuorum is meaningless below 3 and 2-instance prod is forbidden (pg-usage-shapes)" (int $instances)) }}
+{{- fail (printf "prod posture requires instances >= 3 (got %d) — failoverQuorum is meaningless below 3 and a 2-instance prod is forbidden" (int $instances)) }}
 {{- end }}
 {{- $storageClass := .Values.storage.storageClass | default ($prod | ternary "cnpg-gp3" "cnpg-gp3-delete") }}
 apiVersion: postgresql.cnpg.io/v1
@@ -33,8 +33,8 @@ spec:
   enableSuperuserAccess: {{ .Values.enableSuperuserAccess }}
   # Explicit on both postures: CNPG defaults enablePDB to true, so a
   # devel single-instance cluster would otherwise get a primary PDB
-  # with 0 allowed disruptions and block node drains until the
-  # NodePool's 24h force-drain (pg-usage-shapes: devel = no PDB).
+  # with 0 allowed disruptions and block node drains until the node
+  # pool's force-drain deadline (devel = no PDB).
   enablePDB: {{ $prod }}
 
   {{- if include "cnpg-cluster.serverTLSEnabled" . }}
@@ -125,9 +125,10 @@ spec:
     podAntiAffinityType: required
     {{- end }}
     {{- if $pool }}
-    # Tainted pool (gitops cfg/k8s.yaml presets): the non-interruptible
-    # home for pg instances; on the prod profile one replica of EVERY
-    # pg cluster per node/AZ. Capacity type is the PRESET's decision.
+    # Tainted pool (the platform's node-pool definitions): the
+    # non-interruptible home for pg instances; on the prod profile one
+    # replica of EVERY pg cluster per node/AZ. Capacity type is the
+    # pool's decision, not the chart's.
     nodeSelector:
       karpenter.sh/nodepool: {{ $pool }}
     {{- end }}

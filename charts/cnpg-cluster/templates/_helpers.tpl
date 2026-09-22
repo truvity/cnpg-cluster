@@ -3,21 +3,19 @@ Resolve the serverName for recovery source.
 Defaults to clusterName if not explicitly set.
 */}}
 {{- define "cnpg-cluster.sourceServerName" -}}
-{{- /* No dig: .Values is chartutil.Values, which dig rejects
-(interface conversion panic — found in the first live recovery
-drill). Chained defaults survive absent intermediate keys. */ -}}
+{{- /* No dig: .Values is chartutil.Values, which dig rejects with an
+interface conversion panic the moment a recovery render runs. Chained
+defaults survive absent intermediate keys. */ -}}
 {{- $src := ((.Values.bootstrap | default dict).recovery | default dict).source | default dict -}}
 {{- $src.serverName | default .Values.clusterName -}}
 {{- end -}}
 
 {{/*
-The hba posture (gitops docs/architecture/pg-usage-shapes.md): hostssl
-only, never trust, implicit reject at the end. hba is FIRST-MATCH, so
-password (scram) lines are emitted per password role BEFORE the
-catch-all cert line — a leading blanket cert rule would shadow scram and
-break every password login. Projects may APPEND via
-postgresql.extra_pg_hba, never replace. The waist OAuth line lands with
-the validator (INF-479).
+The hba posture: hostssl only, never trust, implicit reject at the end.
+hba is FIRST-MATCH, so password (scram) lines are emitted per password
+role BEFORE the catch-all cert line — a leading blanket cert rule would
+shadow scram and break every password login. Projects may APPEND via
+postgresql.extra_pg_hba, never replace.
 */}}
 {{- define "cnpg-cluster.pgHba" -}}
 {{- if .Values.bootstrap.initdb.owner }}
