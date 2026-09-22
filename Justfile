@@ -40,7 +40,11 @@ chart-lint:
     helm template db charts/cnpg-database \
         --set clusterName=pg --set namespace=default --set profile=devel --set databaseName=app >/dev/null
 
-check: test lint chart-lint vuln
+# The reason this repository can be public. Runs in CI as its own job.
+leak-canary:
+    hack/leak-canary.sh
+
+check: test lint chart-lint leak-canary vuln
 
 # Build a snapshot release locally (no push, no tag)
 snapshot:

@@ -1,14 +1,18 @@
-# cnpg-cluster v2: the tier-injected PostgreSQL profile carrier.
+# cnpg-cluster v2: a PostgreSQL cluster whose posture is chosen by a
+# platform-injected profile.
 #
-# CONTRACT: this chart implements gitops docs/architecture/
-# pg-usage-shapes.md — if they disagree, the doc wins and the chart is
-# the bug. The PLATFORM injects `profile` and `backup` coordinates
-# (wave-105 valuesObject); the PROJECT declares databases/roles/customers.
-# A project cannot ship a prod posture of its own choosing.
+# CONTRACT: the values split in two. The PLATFORM (whatever installs
+# this chart — an app-of-apps, a pipeline, a hand-written values file)
+# injects `profile` and the `backup` coordinates; the PROJECT declares
+# databases/roles/customers. A project cannot ship a prod posture of its
+# own choosing: the profile decides instances, durability, storage and
+# scheduling, and a project overrides knobs, never the posture.
 #
-# v2 breaking changes vs 1.x: IRSA removed (EKS Pod Identity binds the
-# {clusterName} ServiceAccount to the platform-minted
-# {env}-pg-backup-{project} role — no chart-side IAM at all);
+# v2 breaking changes vs 1.x: chart-side IAM is gone. The chart renders
+# no IRSA annotation and no role; with no static keys the ObjectStore
+# inherits the pod's ambient identity, so the platform binds whatever
+# identity it uses (EKS Pod Identity, IRSA or a node role) to the
+# {clusterName} ServiceAccount and grants it the bucket prefix.
 # isWALArchiver is now true when backup is enabled; databases/roles are
 # declared here (the cnpg-database chart is retired).
 
@@ -16,21 +20,23 @@ clusterName: ""
 namespace: ""
 
 # ── Platform-injected ────────────────────────────────────────────────
-# profile: "devel" | "prod" — selects the hardened posture. stage runs
-# "prod". Injected by wave-105; do not set in project values. REQUIRED:
-# the render fails when unset/invalid — a misspelled profile must never
+# profile: "devel" | "prod" — selects the posture. Anything that must
+# survive (staging included) runs "prod"; there is no third profile.
+# Injected by the platform; do not set in project values. REQUIRED: the
+# render fails when unset/invalid — a misspelled profile must never
 # silently degrade prod to a single-instance devel posture.
 profile: ""
 
-# Tenancy labels stamped on the Cluster CR; the operator's
-# INHERITED_LABELS fans them out to Pods/PVCs/Services (gitops INF-476).
+# Labels stamped on the Cluster CR and, via inheritedMetadata, on its
+# Pods/PVCs/Services (the operator only fans out keys listed in its
+# INHERITED_LABELS setting, so list yours there).
 labels: {}
-#  tenancy.truvity.io/project: url-shortener
-#  tenancy.truvity.io/tier: primary
+#  app.kubernetes.io/part-of: my-app
+#  example.com/tier: primary
 
-# Backup coordinates (platform-injected; the gitops repo derives them
-# from cfg/gen/{backup-scope}/ via cfg/config-cnpg). Empty bucket = archiving
-# off (devel default — only the designated test project archives there).
+# Backup coordinates (platform-injected: the bucket and the identity
+# that may write to it are the platform's to mint and to hand in here).
+# Empty bucket = archiving off, the usual devel default.
 backup:
   enabled: false
   bucketName: ""
@@ -46,8 +52,9 @@ backup:
   # recovery-bootstrapped cluster CONTINUES the old dir instead.
   serverName: ""
   schedule: "0 0 2 * * *"
-  # retentionDays is the FUNCTIONAL PITR window (plugin-pruned; the S3
-  # lifecycle backstop is 180d, structure-side).
+  # retentionDays is the FUNCTIONAL PITR window (plugin-pruned). A
+  # bucket lifecycle rule, if the platform sets one, is only a backstop
+  # for what the plugin fails to prune — it must outlive this window.
   retentionDays: 30
   # Separate knobs — the plugin's data enum (bzip2/gzip/lz4/snappy) is
   # narrower than WAL's (which adds xz/zstd).
@@ -136,7 +143,7 @@ databases: []
 # Customers (shared-cluster, database-per-customer shape — rung 2 of the
 # isolation ladder): each renders a Database owned by the shared owner
 # plus a {name}-access NOLOGIN role the daemon role joins. One daemon
-# cert, N databases; shared PITR timeline (see pg-usage-shapes.md).
+# cert, N databases; one shared PITR timeline.
 customers: []
 #  - name: customer-a
 
@@ -146,17 +153,18 @@ customers: []
 #   * the bootstrap owner needs no entry here — CNPG's initdb already
 #     mints the {clusterName}-app basic-auth Secret for it;
 #   * any OTHER password role MUST bring its own passwordSecret (a
-#     kubernetes.io/basic-auth Secret, e.g. ESO-delivered or created by
-#     the verify suite) — the chart NEVER generates passwords
-#     (template-time randomness drifts under ArgoCD; see the
-#     url-shortener-infra history).
+#     kubernetes.io/basic-auth Secret, e.g. delivered by an external
+#     secrets operator or created by a test harness) — the chart NEVER
+#     generates passwords: template-time randomness renders a new value
+#     on every sync, so a GitOps controller would rotate the password
+#     under a running application.
 roles: []
-#  - name: us-app
+#  - name: my-app
 #    auth: cert
 #    inRoles: []
-#  - name: us-legacy
+#  - name: my-legacy
 #    auth: password
-#    passwordSecret: us-legacy-pg-credentials
+#    passwordSecret: my-legacy-pg-credentials
 
 # ── Overridable knobs (profile provides defaults) ────────────────────
 instances: null          # devel 1 / prod 3 unless overridden

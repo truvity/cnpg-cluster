@@ -10,8 +10,8 @@ namespace: ""
 # Database owner (PostgreSQL role that owns this database)
 owner: "app"
 
-# RETIRED (ADR-026): allowedConsumers previously generated a
-# CiliumNetworkPolicy ingress rule per entry — Cilium is gone; per-install
-# NetworkPolicies live in the ring2 business charts now. Kept as a no-op
-# for values compatibility.
+# RETIRED: allowedConsumers previously generated a CiliumNetworkPolicy
+# ingress rule per entry. The chart renders no network policy any more;
+# the consumer owns its own NetworkPolicies. Kept as a no-op for values
+# compatibility.
 allowedConsumers: []

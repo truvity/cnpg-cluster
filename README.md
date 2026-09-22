@@ -111,8 +111,9 @@ real version from the git tag via `ocictl helmctl` when packaging.
 
 ## Provenance
 
-Extracted from Truvity's internal monorepo (the `nexus` charts) so the cluster
-and database shapes can be consumed by any estate, MIT-licensed.
+Extracted from its maintainers' internal estate so the cluster and database
+shapes can be consumed by any estate, MIT-licensed. Used in production by its
+maintainers.
 
 ## License
 

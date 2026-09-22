@@ -14,12 +14,12 @@ permissions:
 jobs:
   # The same recipe the shared workflow runs everywhere else, instead of
   # a hand-rolled copy that installed devbox through an UNPINNED
-  # `curl | bash` -- eight repositories carried that identical block.
+  # `curl | bash` -- many repositories carried that identical block.
   #
   # Deliberately NOT in ci.yaml's recipe list, and deliberately not a
   # required context. A standard-library advisory with no released fix
   # would otherwise wedge every pull request on a finding nobody can act
-  # on, which is exactly what happened to pulumi-zitadel.
+  # on, which has happened before.
   govulncheck:
     uses: truvity/ci-workflows/.github/workflows/check.yaml@98939fa99a6ac03994253fd00a7b336fac9fe0a9 # v3.2.0
     with:
