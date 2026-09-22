@@ -56,6 +56,42 @@ certificates and `pg_hba` do not change. Clients that do not verify the server
 must trust the issuer's roots first, and under `verify-full` dial one of the
 fully-qualified names above. Unset the value to go back to the operator's CA.
 
+## Backups on an S3-compatible store
+
+`backup` (and `bootstrap.recovery.source`, for a recovery from an archive on a
+different store) is AWS-shaped by default: the `ObjectStore` inherits the pod's
+own identity and asks for `AES256` server-side encryption on every upload.
+Three values, all inert when empty, point it at any S3-compatible store
+instead -- Cloudflare R2, MinIO, Ceph RGW or an AWS bucket reached with static
+keys:
+
+```yaml
+backup:
+  enabled: true
+  bucketName: my-backups
+  endpoint: https://<account>.r2.cloudflarestorage.com   # R2; MinIO/Ceph: your gateway URL
+  existingSecret: pg-backup-s3   # AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+  encryption: ""                 # R2 rejects x-amz-server-side-encryption
+```
+
+- `endpoint` becomes the `ObjectStore`'s `endpointURL`. A custom endpoint is
+  addressed path-style (`endpoint/bucket/key`), the S3 SDK's own default once
+  an endpoint is set; every store above accepts it, so there is no addressing
+  switch. No region is needed: the SDK signs with `us-east-1` when none is
+  configured, which R2 aliases to its single `auto` region and MinIO ignores.
+- `endpointCA: {name, key}` names a Secret holding the PEM bundle that verifies
+  a private store's certificate.
+- `existingSecret` switches `s3Credentials` from `inheritFromIAMRole` to the
+  named Secret. `existingSecretKeys` renames the keys; `sessionToken` and
+  `region` are read only when named, since the plugin refuses a missing key
+  rather than skipping it.
+- `encryption: ""` drops the `encryption` field, leaving encryption to the
+  bucket's policy. The default stays `AES256`.
+
+With every value at its default the rendered chart is byte-identical to the
+previous release; the tests in `charts/cnpg-cluster/objectstore_test.go` pin
+both shapes.
+
 ## Scheduling
 
 `scheduling.databasePool` (default `database`) selects the Karpenter node pool

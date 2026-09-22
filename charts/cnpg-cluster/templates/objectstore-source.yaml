@@ -1,5 +1,6 @@
 {{- if eq .Values.bootstrap.mode "recovery" }}
-{{- if .Values.bootstrap.recovery.source.bucketName }}
+{{- $src := .Values.bootstrap.recovery.source }}
+{{- if $src.bucketName }}
 apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
 metadata:
@@ -7,8 +8,36 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   configuration:
-    destinationPath: s3://{{ .Values.bootstrap.recovery.source.bucketName }}/{{ .Values.bootstrap.recovery.source.s3Prefix }}
+    destinationPath: s3://{{ $src.bucketName }}/{{ $src.s3Prefix }}
+{{- with $src.endpoint }}
+    endpointURL: {{ . | quote }}
+{{- end }}
+{{- with $src.endpointCA }}
+    endpointCA:
+      name: {{ required "bootstrap.recovery.source.endpointCA.name is required when endpointCA is set" .name }}
+      key: {{ required "bootstrap.recovery.source.endpointCA.key is required when endpointCA is set" .key }}
+{{- end }}
     s3Credentials:
+{{- if $src.existingSecret }}
+{{- $keys := $src.existingSecretKeys | default dict }}
+      accessKeyId:
+        name: {{ $src.existingSecret }}
+        key: {{ $keys.accessKeyId | default "AWS_ACCESS_KEY_ID" }}
+      secretAccessKey:
+        name: {{ $src.existingSecret }}
+        key: {{ $keys.secretAccessKey | default "AWS_SECRET_ACCESS_KEY" }}
+{{- with $keys.sessionToken }}
+      sessionToken:
+        name: {{ $src.existingSecret }}
+        key: {{ . }}
+{{- end }}
+{{- with $keys.region }}
+      region:
+        name: {{ $src.existingSecret }}
+        key: {{ . }}
+{{- end }}
+{{- else }}
       inheritFromIAMRole: true
+{{- end }}
 {{- end }}
 {{- end }}

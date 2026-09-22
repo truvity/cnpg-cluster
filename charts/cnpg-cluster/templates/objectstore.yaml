@@ -7,17 +7,49 @@ metadata:
 spec:
   configuration:
     destinationPath: s3://{{ .Values.backup.bucketName }}/{{ include "cnpg-cluster.s3Prefix" . }}
+{{- with .Values.backup.endpoint }}
+    endpointURL: {{ . | quote }}
+{{- end }}
+{{- with .Values.backup.endpointCA }}
+    endpointCA:
+      name: {{ required "backup.endpointCA.name is required when endpointCA is set" .name }}
+      key: {{ required "backup.endpointCA.key is required when endpointCA is set" .key }}
+{{- end }}
     s3Credentials:
+{{- if .Values.backup.existingSecret }}
+{{- $keys := .Values.backup.existingSecretKeys | default dict }}
+      accessKeyId:
+        name: {{ .Values.backup.existingSecret }}
+        key: {{ $keys.accessKeyId | default "AWS_ACCESS_KEY_ID" }}
+      secretAccessKey:
+        name: {{ .Values.backup.existingSecret }}
+        key: {{ $keys.secretAccessKey | default "AWS_SECRET_ACCESS_KEY" }}
+{{- with $keys.sessionToken }}
+      sessionToken:
+        name: {{ $.Values.backup.existingSecret }}
+        key: {{ . }}
+{{- end }}
+{{- with $keys.region }}
+      region:
+        name: {{ $.Values.backup.existingSecret }}
+        key: {{ . }}
+{{- end }}
+{{- else }}
       inheritFromIAMRole: true # EKS Pod Identity ({env}-pg-backup-{project})
+{{- end }}
     data:
       # Base backups: the CRD enum here is narrower than WAL's (no
       # zstd/xz — found by server dry-run against the live plugin).
       compression: {{ .Values.backup.dataCompression }}
-      encryption: {{ .Values.backup.encryption }}
+{{- with .Values.backup.encryption }}
+      encryption: {{ . }}
+{{- end }}
       jobs: 2
     wal:
       compression: {{ .Values.backup.walCompression }}
-      encryption: {{ .Values.backup.encryption }}
+{{- with .Values.backup.encryption }}
+      encryption: {{ . }}
+{{- end }}
       maxParallel: 4
   # The FUNCTIONAL PITR window; the S3 lifecycle 180d backstop is
   # structure-side (gitops cnpg-backup stacks).
